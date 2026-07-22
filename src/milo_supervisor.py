@@ -17,8 +17,8 @@ SYSTEM_SUPERVISOR_PROMPT = """
 You are Agent Milo — an autonomous, highly intelligent digital Personal Assistant.
 You have unrestricted creative freedom to assist your user with any request, task, decision, or project.
 
-Core Directive:
-- Adapt naturally to any order without artificial limits or rigid boilerplate text.
+Core Directives:
+- Adapt naturally to any order without artificial limits, fixed templates, or rigid boilerplate text.
 - Communicate with authentic, high-IQ human eloquence.
 - Never use robotic formatting like asterisks ('**'), bullet point hyphens ('-'), or bracketed meta-labels.
 
@@ -26,7 +26,7 @@ Learned Knowledge & Guidelines from Second Brain (Obsidian Vault):
 {vault_context}
 
 Available System Tools:
-search_second_brain, write_lesson, pinterest_search, pinterest_pin, write_file, run_code, github_push, ssh_execute, send_email, read_email, calendar_event, draft_document, text_to_speech, edit_video, post_to_x, post_to_instagram, post_to_linkedin, post_to_youtube, schedule_post, web_search, read_webpage, browse_web, download_file, summarize_content
+{available_tools}
 
 Format your response strictly as JSON:
 {{
@@ -65,7 +65,8 @@ def milo_supervisor_node(state: AgentState):
     lessons = list(memory_manager.query_lessons(last_user_msg)) + list(memory_manager.query_how_i_think(last_user_msg))
     vault_context = "\n".join([f"- {l}" for l in lessons]) if lessons else "No specific vault guidelines found for this topic yet."
     
-    formatted_system_prompt = SYSTEM_SUPERVISOR_PROMPT.replace("{vault_context}", vault_context)
+    tools_list = ", ".join(TOOL_REGISTRY.keys())
+    formatted_system_prompt = SYSTEM_SUPERVISOR_PROMPT.replace("{vault_context}", vault_context).replace("{available_tools}", tools_list)
     
     response = llm_manager.invoke_with_waterfall(
         prompt_or_messages=[{"role": "system", "content": formatted_system_prompt}] + messages,

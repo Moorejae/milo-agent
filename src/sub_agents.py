@@ -6,7 +6,7 @@ from src.tools.memory_tools import search_second_brain, write_lesson, pinterest_
 from src.tools.dev_tools import write_file, run_code, github_push, ssh_execute
 from src.tools.comms_tools import send_email, read_email, calendar_event, draft_document
 from src.tools.media_tools import text_to_speech, edit_video
-from src.tools.social_tools import post_to_x, post_to_instagram, post_to_linkedin, post_to_youtube, schedule_post
+from src.tools.social_tools import post_to_facebook, post_to_x, post_to_instagram, post_to_linkedin, post_to_youtube, schedule_post
 from src.tools.research_tools import web_search, read_webpage, browse_web, download_file, summarize_content
 
 # Global Central Tool Registry mapping tool names to executable LangChain @tool objects
@@ -34,6 +34,7 @@ TOOL_REGISTRY = {
     "edit_video": edit_video,
     
     # Social Media Management
+    "post_to_facebook": post_to_facebook,
     "post_to_x": post_to_x,
     "post_to_instagram": post_to_instagram,
     "post_to_linkedin": post_to_linkedin,

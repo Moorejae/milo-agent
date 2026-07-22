@@ -5,21 +5,30 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Load keys dynamically from environment variables (Round-Robin pooling of 14 keys)
+# Load keys dynamically from environment variables (Supports GEMINI_API_KEY_LOOP comma-separated string)
 def load_api_keys():
     keys = []
-    # Check GEMINI_API_KEY_1 through GEMINI_API_KEY_14
-    for i in range(1, 15):
-        k = os.getenv(f"GEMINI_API_KEY_{i}")
-        if k:
-            keys.append(k)
-            
-    # Check single GEMINI_API_KEY fallback
+    
+    # 1. Check GEMINI_API_KEY_LOOP (comma-separated list of 14 keys like in idea-684)
+    loop_val = os.getenv("GEMINI_API_KEY_LOOP")
+    if loop_val:
+        parts = [k.strip() for k in loop_val.split(",") if k.strip()]
+        keys.extend(parts)
+        
+    # 2. Check GEMINI_API_KEY (comma-separated or single key)
     if not keys:
-        single_key = os.getenv("GEMINI_API_KEY")
-        if single_key:
-            keys.append(single_key)
+        single_val = os.getenv("GEMINI_API_KEY")
+        if single_val:
+            parts = [k.strip() for k in single_val.split(",") if k.strip()]
+            keys.extend(parts)
             
+    # 3. Check GEMINI_API_KEY_1 through GEMINI_API_KEY_14 fallback
+    if not keys:
+        for i in range(1, 15):
+            k = os.getenv(f"GEMINI_API_KEY_{i}")
+            if k:
+                keys.append(k.strip())
+                
     return keys
 
 # Prioritized list of supported Gemini 3.x and 2.x models in descending tier order
@@ -66,7 +75,7 @@ class LLMManager:
         if not self.keys:
             self.keys = load_api_keys()
         if not self.keys:
-            raise Exception("No GEMINI_API_KEY environment variables found!")
+            raise Exception("No GEMINI_API_KEY or GEMINI_API_KEY_LOOP environment variables found!")
 
         waterfall = self.get_waterfall_for_intensity(intensity)
         
@@ -96,6 +105,6 @@ class LLMManager:
 
             self.current_key_idx = (self.current_key_idx + 1) % len(self.keys)
 
-        raise Exception("FATAL: Exhausted all 14 API keys and all models in the waterfall!")
+        raise Exception("FATAL: Exhausted all API keys in pool and all models in the waterfall!")
 
 llm_manager = LLMManager()

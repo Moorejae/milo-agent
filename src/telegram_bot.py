@@ -22,16 +22,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await update.message.reply_text(welcome_text)
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not update.message or not update.message.text:
-        return
-
-    user_text = update.message.text
-    chat_id = update.message.chat_id
-    user_name = update.message.from_user.first_name if update.message.from_user else "User"
-    
-    logger.info(f"Received Telegram message from {user_name} ({chat_id}): '{user_text}'")
-    
+async def process_task_async(update: Update, context: ContextTypes.DEFAULT_TYPE, user_text: str, user_name: str, chat_id: int):
+    """Executes task asynchronously in background without blocking Telegram handler."""
+    logger.info(f"Processing background task for {user_name} ({chat_id}): '{user_text[:60]}...'")
     try:
         initial_state = {
             "messages": [{"role": "user", "content": user_text}], 
@@ -60,6 +53,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Error handling Telegram message: {e}", exc_info=True)
         await update.message.reply_text(f"Error: {str(e)}")
 
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not update.message or not update.message.text:
+        return
+
+    user_text = update.message.text
+    chat_id = update.message.chat_id
+    user_name = update.message.from_user.first_name if update.message.from_user else "User"
+    
+    logger.info(f"Received Telegram message from {user_name} ({chat_id}): '{user_text}'")
+    
+    # Spawn non-blocking background task so user can send multiple tasks concurrently!
+    asyncio.create_task(process_task_async(update, context, user_text, user_name, chat_id))
+
 async def telegram_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles exceptions, gracefully handling temporary 409 Conflict during cloud redeploys."""
     if isinstance(context.error, Conflict):
@@ -77,7 +83,6 @@ def run_telegram_bot():
     print("  Agent Milo — Telegram Bot Listener Online      ")
     print("==================================================")
     
-    # Pre-emptively clear any webhooks or old polling sessions on Telegram servers
     try:
         requests.post(f"https://api.telegram.org/bot{token}/deleteWebhook?drop_pending_updates=true", timeout=5)
     except Exception as e:

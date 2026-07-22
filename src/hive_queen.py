@@ -2,16 +2,16 @@ import os
 import sys
 import json
 import time
-import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from src.llm_manager import llm_manager
 from src.hive_queen_schema import hive_vault
-from src.sub_agents import get_clean_content_str, TOOL_REGISTRY
+from src.sub_agents import get_clean_content_str, TOOL_REGISTRY, run_agent
 
 HIVE_QUEEN_SYSTEM_PROMPT = """
 Role: Milo — Hive-Queen Orchestration Agent
 
 You are Milo, an autonomous orchestration core. You do NOT execute micro-tasks yourself.
-You decompose objectives, manufacture single-purpose sub-agents to execute them, supervise their run, and synthesize results.
+You decompose objectives, manufacture single-purpose sub-agents to execute them, supervise their run in parallel, and synthesize results.
 
 Identity & Scope:
 - You are the ARCHITECT, never the WORKER. Any time you catch yourself about to directly produce a task's output (not code that produces it), STOP — that's a sub-agent's job.
@@ -21,7 +21,7 @@ Operational Protocol:
 1. Analyze: Break the objective into micro-tasks with explicit dependencies (DAG). Each micro-task needs: a name, input contract, output contract, and definition of done.
 2. Audit: Check if an active sub-agent script exists in registry that matches purpose AND schema.
 3. Manufacture: If no match, write a single-purpose Python script for the micro-task. Single responsibility, structured logging, no hardcoded secrets.
-4. Deploy & Supervise: Launch micro-task script with task ID format {objective_id}.{microtask_index}.{attempt_number}. Poll logs. Max 3 retries on logic errors before escalating to user.
+4. Deploy & Supervise (Parallel Execution): Launch sub-agents concurrently using Task ID format {objective_id}.{microtask_index}.{attempt_number}. Poll logs. Max 3 retries on logic errors before escalating to user.
 5. Missing API Keys / Credentials Escalation: If a tool output or execution trace reveals a missing API key or credential (e.g. X_API_KEY missing, FACEBOOK_ACCESS_TOKEN missing, PINTEREST_ACCESS_TOKEN missing), IMMEDIATELY ask the user on Telegram to provide the key or set the environment variable.
 6. Synthesize: Reconcile outputs against original objective (Objective Drift Check), update state.canvas, decisions.md, and reply on Telegram cleanly.
 
@@ -35,6 +35,78 @@ Negative Constraints:
 class HiveQueenEngine:
     def __init__(self):
         self.vault = hive_vault
+
+    def _execute_single_microtask(self, objective_id: str, idx: int, mt: dict, raw_user_ask: str) -> tuple[int, str, str]:
+        """Executes a single microtask with retry supervision up to 3 attempts."""
+        mt_name = mt.get("name", f"task_{idx}")
+        agent_id = f"agent_{mt_name.lower().replace(' ', '_')}"
+        script_path = f"agents/scripts/{agent_id}.py"
+
+        print(f"[Hive-Queen Audit] Micro-task [{idx+1}]: '{mt_name}' (Agent ID: {agent_id})")
+
+        # Check if script exists in registry/GitHub
+        existing_script = self.vault.read_file(script_path, default="")
+
+        if not existing_script or mt.get("requires_manufacture", False):
+            print(f"[Hive-Queen Manufacture] Writing dynamic single-purpose python script for '{agent_id}'...")
+            manufacture_prompt = (
+                f"Write a single-purpose, complete, standalone Python script for micro-task: '{mt_name}'.\n"
+                f"Objective context: {raw_user_ask}\n"
+                f"Input contract: {mt.get('input_contract')}\n"
+                f"Output contract: {mt.get('output_contract')}\n\n"
+                "Requirements:\n"
+                "- Complete runnable python code only (no markdown, no backticks)\n"
+                "- Import os, sys, json, requests as needed\n"
+                "- Print deterministic machine-parseable JSON output at the end\n"
+            )
+            code_resp = llm_manager.invoke_with_waterfall(
+                prompt_or_messages=[
+                    {"role": "system", "content": HIVE_QUEEN_SYSTEM_PROMPT},
+                    {"role": "user", "content": manufacture_prompt}
+                ],
+                intensity="heavy"
+            )
+            script_code = get_clean_content_str(code_resp.content)
+            script_code = script_code.replace("```python", "").replace("```", "").strip()
+
+            self.vault.write_file(script_path, script_code, commit_msg=f"Manufacture agent script: {agent_id}")
+            self.vault.register_sub_agent(
+                agent_id=agent_id,
+                purpose=mt_name,
+                input_schema=str(mt.get("input_contract")),
+                output_schema=str(mt.get("output_contract")),
+                script_path=script_path
+            )
+
+        attempt = 1
+        max_retries = 3
+        success = False
+        output_text = ""
+
+        while attempt <= max_retries and not success:
+            task_id = f"{objective_id}.{idx}.{attempt}"
+            print(f"[Hive-Queen Supervise] Executing Task ID {task_id} (Attempt {attempt}/{max_retries})...")
+
+            try:
+                output_text = run_agent(
+                    role_description=f"Hive-Queen Worker ({mt_name})",
+                    task=f"Execute micro-task: '{mt_name}'. Input: {raw_user_ask}",
+                    tool_names=list(TOOL_REGISTRY.keys()),
+                    intensity="routine"
+                )
+                success = True
+                print(f"[Hive-Queen Supervise] Task {task_id} SUCCESS!")
+            except Exception as ex:
+                print(f"[Hive-Queen Supervise] Task {task_id} FAILED: {ex}")
+                attempt += 1
+
+        if not success:
+            error_msg = f"Task {mt_name} failed after {max_retries} attempts. Escalating to user."
+            self.vault.log_decision(f"Escalation on {mt_name}", error_msg)
+            return idx, mt_name, error_msg
+
+        self.vault.append_log(f"logs/{objective_id}.md", f"## Microtask {idx}: {mt_name}\n**Output:** {output_text}\n")
+        return idx, mt_name, output_text
 
     def execute_objective(self, raw_user_ask: str) -> str:
         objective_id = f"obj_{int(time.time())}"
@@ -82,87 +154,23 @@ class HiveQueenEngine:
                 "requires_manufacture": False
             }]
 
-        # Update Obsidian state.canvas visually
         self.vault.update_canvas(objective_id, raw_user_ask, microtasks)
 
-        execution_outputs = []
+        # 2. PARALLEL DEPLOYMENT & SUPERVISION OF SUB-AGENTS
+        execution_outputs = [""] * len(microtasks)
+        print(f"[Hive-Queen Execution Pool] Dispatching {len(microtasks)} sub-agent worker tasks in PARALLEL...")
 
-        # 2. AUDIT, MANUFACTURE, DEPLOY, SUPERVISE
-        for idx, mt in enumerate(microtasks):
-            mt_name = mt.get("name", f"task_{idx}")
-            agent_id = f"agent_{mt_name.lower().replace(' ', '_')}"
-            script_path = f"agents/scripts/{agent_id}.py"
-
-            print(f"\n[Hive-Queen Audit] Micro-task [{idx+1}/{len(microtasks)}]: '{mt_name}' (Agent ID: {agent_id})")
-
-            # Check if script exists in registry/GitHub
-            existing_script = self.vault.read_file(script_path, default="")
-
-            if not existing_script or mt.get("requires_manufacture", False):
-                print(f"[Hive-Queen Manufacture] Writing dynamic single-purpose python script for '{agent_id}'...")
-                manufacture_prompt = (
-                    f"Write a single-purpose, complete, standalone Python script for micro-task: '{mt_name}'.\n"
-                    f"Objective context: {raw_user_ask}\n"
-                    f"Input contract: {mt.get('input_contract')}\n"
-                    f"Output contract: {mt.get('output_contract')}\n\n"
-                    "Requirements:\n"
-                    "- Complete runnable python code only (no markdown, no backticks)\n"
-                    "- Import os, sys, json, requests as needed\n"
-                    "- Print deterministic machine-parseable JSON output at the end\n"
-                )
-                code_resp = llm_manager.invoke_with_waterfall(
-                    prompt_or_messages=[
-                        {"role": "system", "content": HIVE_QUEEN_SYSTEM_PROMPT},
-                        {"role": "user", "content": manufacture_prompt}
-                    ],
-                    intensity="heavy"
-                )
-                script_code = get_clean_content_str(code_resp.content)
-                script_code = script_code.replace("```python", "").replace("```", "").strip()
-
-                # Commit script to GitHub vault
-                self.vault.write_file(script_path, script_code, commit_msg=f"Manufacture agent script: {agent_id}")
-
-                # Register in agents/registry.md
-                self.vault.register_sub_agent(
-                    agent_id=agent_id,
-                    purpose=mt_name,
-                    input_schema=str(mt.get("input_contract")),
-                    output_schema=str(mt.get("output_contract")),
-                    script_path=script_path
-                )
-
-            # 4. DEPLOY & SUPERVISE (with max 3 retries)
-            attempt = 1
-            max_retries = 3
-            success = False
-            output_text = ""
-
-            while attempt <= max_retries and not success:
-                task_id = f"{objective_id}.{idx}.{attempt}"
-                print(f"[Hive-Queen Supervise] Executing Task ID {task_id} (Attempt {attempt}/{max_retries})...")
-
+        with ThreadPoolExecutor(max_workers=min(5, len(microtasks))) as executor:
+            futures = [
+                executor.submit(self._execute_single_microtask, objective_id, idx, mt, raw_user_ask)
+                for idx, mt in enumerate(microtasks)
+            ]
+            for future in as_completed(futures):
                 try:
-                    from src.sub_agents import run_agent
-                    output_text = run_agent(
-                        role_description=f"Hive-Queen Worker ({mt_name})",
-                        task=f"Execute micro-task: '{mt_name}'. Input: {raw_user_ask}",
-                        tool_names=list(TOOL_REGISTRY.keys()),
-                        intensity="routine"
-                    )
-                    success = True
-                    print(f"[Hive-Queen Supervise] Task {task_id} SUCCESS!")
-                except Exception as ex:
-                    print(f"[Hive-Queen Supervise] Task {task_id} FAILED: {ex}")
-                    attempt += 1
-
-            if not success:
-                error_msg = f"Task {mt_name} failed after {max_retries} attempts. Escalating to user."
-                self.vault.log_decision(f"Escalation on {mt_name}", error_msg)
-                return error_msg
-
-            execution_outputs.append(f"{mt_name}: {output_text}")
-            self.vault.append_log(f"logs/{objective_id}.md", f"## Microtask {idx}: {mt_name}\n**Output:** {output_text}\n")
+                    idx, mt_name, output_text = future.result()
+                    execution_outputs[idx] = f"{mt_name}: {output_text}"
+                except Exception as e:
+                    print(f"[Hive-Queen Worker Pool Error]: {e}")
 
         # 6. SYNTHESIZE & OBJECTIVE DRIFT CHECK
         synthesis_prompt = (
@@ -182,7 +190,6 @@ class HiveQueenEngine:
         )
         
         final_answer = get_clean_content_str(synth_resp.content).replace("**", "").replace("*", "").strip()
-
         self.vault.log_decision(f"Objective {objective_id} Completed", f"Raw Ask: {raw_user_ask}\nOutput Length: {len(final_answer)}")
 
         return final_answer

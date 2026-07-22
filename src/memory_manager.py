@@ -27,6 +27,38 @@ class MemoryManager:
         except Exception:
             self.github = None
 
+        # Auto-ingest vault on startup from GitHub repo
+        self._initial_vault_sync()
+
+    def _initial_vault_sync(self):
+        """Pulls existing lesson files from GitHub my-obsidian-vault repo on startup."""
+        if not self.github:
+            return
+        try:
+            user = self.github.get_user()
+            try:
+                repo = user.get_repo(REPO_NAME)
+                contents = repo.get_contents("lessons")
+                for f in contents:
+                    if f.path.endswith(".md"):
+                        text = f.decoded_content.decode("utf-8")
+                        doc_id = f.name.replace(".md", "")
+                        self.memory_store["lessons"][doc_id] = text
+                        if self.chroma_available:
+                            try:
+                                self.lessons_collection.add(
+                                    documents=[text],
+                                    metadatas=[{"source": doc_id}],
+                                    ids=[doc_id]
+                                )
+                            except Exception:
+                                pass
+                print(f"[MemoryManager] Successfully synced {len(self.memory_store['lessons'])} past lessons from GitHub '{REPO_NAME}' vault!")
+            except Exception as e:
+                print(f"[MemoryManager] Vault remote check status: {e}")
+        except Exception as ge:
+            print(f"[MemoryManager] Initial vault sync error: {ge}")
+
     def query_how_i_think(self, query: str = "guidelines", n_results: int = 5):
         docs = []
         if self.chroma_available:
@@ -36,7 +68,7 @@ class MemoryManager:
             except Exception:
                 pass
         docs.extend(list(self.memory_store["how_i_think"].values()))
-        return filter(None, docs[:n_results])
+        return list(filter(None, docs))[:n_results]
 
     def query_lessons(self, query: str = "lessons learned", n_results: int = 5):
         docs = []
@@ -64,7 +96,7 @@ class MemoryManager:
             except Exception as e:
                 print(f"[MemoryManager] ChromaDB write status: {e}")
 
-        # Sync to GitHub Obsidian Vault repository if available
+        # Sync directly to GitHub Obsidian Vault repository (my-obsidian-vault)
         if self.github:
             try:
                 user = self.github.get_user()

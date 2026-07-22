@@ -2,7 +2,7 @@ import os
 from github import Github
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
-REPO_NAME = "my-obsidian-vault"
+REPO_NAME = os.getenv("OBSIDIAN_REPO_NAME", "my-obsidian-vault")
 
 class MemoryManager:
     def __init__(self):
@@ -17,34 +17,43 @@ class MemoryManager:
             self.lessons_collection = self.chroma_client.get_or_create_collection(name="lessons")
             self.chroma_available = True
         except Exception as e:
-            print(f"[MemoryManager] ChromaDB vector engine fallback (Using file memory): {e}")
+            print(f"[MemoryManager] ChromaDB vector engine fallback (Using in-memory/file store): {e}")
 
         try:
-            self.github = Github(GITHUB_TOKEN)
+            if GITHUB_TOKEN:
+                self.github = Github(GITHUB_TOKEN)
+            else:
+                self.github = None
         except Exception:
             self.github = None
 
-    def query_how_i_think(self, query: str, n_results: int = 3):
+    def query_how_i_think(self, query: str = "guidelines", n_results: int = 5):
+        docs = []
         if self.chroma_available:
             try:
                 results = self.how_i_think_collection.query(query_texts=[query], n_results=n_results)
-                return results.get('documents', [])
+                docs.extend(results.get('documents', [[]])[0])
             except Exception:
                 pass
-        return list(self.memory_store["how_i_think"].values())[:n_results]
+        docs.extend(list(self.memory_store["how_i_think"].values()))
+        return filter(None, docs[:n_results])
 
-    def query_lessons(self, query: str, n_results: int = 3):
+    def query_lessons(self, query: str = "lessons learned", n_results: int = 5):
+        docs = []
         if self.chroma_available:
             try:
                 results = self.lessons_collection.query(query_texts=[query], n_results=n_results)
-                return results.get('documents', [])
+                docs.extend(results.get('documents', [[]])[0])
             except Exception:
                 pass
-        return list(self.memory_store["lessons"].values())[:n_results]
+        docs.extend(list(self.memory_store["lessons"].values()))
+        return list(filter(None, docs))[:n_results]
         
     def write_lesson(self, title: str, content: str):
-        doc_id = f"lesson_{title.replace(' ', '_')}"
+        doc_id = f"lesson_{title.lower().replace(' ', '_')}"
         self.memory_store["lessons"][doc_id] = content
+        
+        # Persist to local Chroma DB if active
         if self.chroma_available:
             try:
                 self.lessons_collection.add(
@@ -53,6 +62,26 @@ class MemoryManager:
                     ids=[doc_id]
                 )
             except Exception as e:
-                print(f"[MemoryManager] Error writing lesson to ChromaDB: {e}")
+                print(f"[MemoryManager] ChromaDB write status: {e}")
+
+        # Sync to GitHub Obsidian Vault repository if available
+        if self.github:
+            try:
+                user = self.github.get_user()
+                try:
+                    repo = user.get_repo(REPO_NAME)
+                except Exception:
+                    repo = user.create_repo(REPO_NAME, private=True)
+                
+                path = f"lessons/{doc_id}.md"
+                file_text = f"# Lesson: {title}\n\n{content}"
+                try:
+                    existing = repo.get_contents(path)
+                    repo.update_file(path, f"Update lesson: {title}", file_text, existing.sha)
+                except Exception:
+                    repo.create_file(path, f"Add lesson: {title}", file_text)
+                print(f"[MemoryManager] Successfully synced lesson '{title}' to GitHub Obsidian Vault ({REPO_NAME})!")
+            except Exception as ge:
+                print(f"[MemoryManager] GitHub vault sync status: {ge}")
 
 memory_manager = MemoryManager()

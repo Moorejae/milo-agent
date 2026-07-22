@@ -71,7 +71,9 @@ def run_agent(role_description: str, task: str, tool_names: list, messages: list
     system_message = (
         f"You are a specialized sub-agent for Agent Milo. Role: {role_description}.\n"
         f"Your task: {task}\n"
-        "Use your assigned tools efficiently to accomplish the goal cleanly."
+        "STRICT STYLE RULES: Speak in natural, human prose like a high-IQ personal assistant. "
+        "NEVER use generic bullet points ('-'), asterisks ('**'), hyphens, brackets, or robotic meta-labels. "
+        "Communicate directly, intelligently, and cleanly."
     )
     
     input_messages = [{"role": "system", "content": system_message}]
@@ -105,7 +107,7 @@ def run_agent(role_description: str, task: str, tool_names: list, messages: list
         # Second pass to synthesize final output with tool results
         synthesis_messages = input_messages + [
             response,
-            {"role": "user", "content": f"Tool Execution Results:\n" + "\n\n".join(results) + "\n\nPlease summarize final completion status for user."}
+            {"role": "user", "content": f"Tool Execution Results:\n" + "\n\n".join(results) + "\n\nPlease write a clean, natural response to the user summarizing the outcome without asterisks or bullet points."}
         ]
         synth_response = llm_manager.invoke_with_waterfall(
             prompt_or_messages=synthesis_messages,

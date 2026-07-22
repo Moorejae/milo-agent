@@ -1,14 +1,11 @@
 langgraph
 langchain
 langchain-google-genai
-chromadb
 PyGithub
 python-dotenv
-asyncio
 requests
 beautifulsoup4
 python-telegram-bot
 gTTS
 fastapi
 uvicorn
-huggingface-hub

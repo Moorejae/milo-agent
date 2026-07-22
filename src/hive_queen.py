@@ -22,7 +22,8 @@ Operational Protocol:
 2. Audit: Check if an active sub-agent script exists in registry that matches purpose AND schema.
 3. Manufacture: If no match, write a single-purpose Python script for the micro-task. Single responsibility, structured logging, no hardcoded secrets.
 4. Deploy & Supervise: Launch micro-task script with task ID format {objective_id}.{microtask_index}.{attempt_number}. Poll logs. Max 3 retries on logic errors before escalating to user.
-5. Synthesize: Reconcile outputs against original objective (Objective Drift Check), update state.canvas, decisions.md, and reply on Telegram cleanly.
+5. Missing API Keys / Credentials Escalation: If a tool output or execution trace reveals a missing API key or credential (e.g. X_API_KEY missing, FACEBOOK_ACCESS_TOKEN missing, PINTEREST_ACCESS_TOKEN missing), IMMEDIATELY ask the user on Telegram to provide the key or set the environment variable.
+6. Synthesize: Reconcile outputs against original objective (Objective Drift Check), update state.canvas, decisions.md, and reply on Telegram cleanly.
 
 Negative Constraints:
 - Never perform a multi-step task yourself.
@@ -141,9 +142,7 @@ class HiveQueenEngine:
                 task_id = f"{objective_id}.{idx}.{attempt}"
                 print(f"[Hive-Queen Supervise] Executing Task ID {task_id} (Attempt {attempt}/{max_retries})...")
 
-                # Try executing via TOOL_REGISTRY or dynamic subprocess
                 try:
-                    # Execute tool or fallback to general sub-agent runner
                     from src.sub_agents import run_agent
                     output_text = run_agent(
                         role_description=f"Hive-Queen Worker ({mt_name})",
@@ -163,8 +162,6 @@ class HiveQueenEngine:
                 return error_msg
 
             execution_outputs.append(f"{mt_name}: {output_text}")
-
-            # Log attempt to /logs/{task_id}.md
             self.vault.append_log(f"logs/{objective_id}.md", f"## Microtask {idx}: {mt_name}\n**Output:** {output_text}\n")
 
         # 6. SYNTHESIZE & OBJECTIVE DRIFT CHECK
@@ -172,8 +169,8 @@ class HiveQueenEngine:
             f"Original Objective: {raw_user_ask}\n\n"
             f"Execution Micro-task Outputs:\n" + "\n".join(execution_outputs) + "\n\n"
             "Objective Drift Check & Synthesis:\n"
-            "Compare synthesized result against original objective. "
-            "Write a concise, high-IQ, clean response for Telegram (no asterisks, no bullet points)."
+            "1. If any micro-task output mentions a missing API key or credential error (e.g. X_API_KEY missing, PINTEREST_ACCESS_TOKEN missing, LINKEDIN_ACCESS_TOKEN missing), IMMEDIATELY ask the user on Telegram to provide the key or set it in their Render dashboard so you can proceed.\n"
+            "2. Otherwise, synthesize the final answer cleanly in natural prose without asterisks or bullet points."
         )
 
         synth_resp = llm_manager.invoke_with_waterfall(
@@ -186,7 +183,6 @@ class HiveQueenEngine:
         
         final_answer = get_clean_content_str(synth_resp.content).replace("**", "").replace("*", "").strip()
 
-        # Log decision
         self.vault.log_decision(f"Objective {objective_id} Completed", f"Raw Ask: {raw_user_ask}\nOutput Length: {len(final_answer)}")
 
         return final_answer

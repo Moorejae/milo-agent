@@ -7,6 +7,7 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from src.milo_supervisor import milo_app, get_clean_content_str
+from src.llm_manager import load_api_keys
 
 load_dotenv()
 
@@ -25,7 +26,7 @@ def health_check():
     return {
         "status": "online",
         "service": "Agent Milo — Universal Personal Assistant",
-        "architecture": "GitHub -> HF Spaces / Cloudflare / Oracle"
+        "architecture": "GitHub -> Render / Cloudflare / Oracle"
     }
 
 @app.post("/api/chat")
@@ -54,6 +55,10 @@ def start_telegram_in_thread():
 @app.on_event("startup")
 def on_startup():
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    keys = load_api_keys()
+    print(f"[STARTUP] TELEGRAM_BOT_TOKEN loaded: {'YES (' + token[:6] + '...)' if token else 'NO'}")
+    print(f"[STARTUP] Loaded {len(keys)} GEMINI API keys from environment.")
+    
     if token:
         thread = threading.Thread(target=start_telegram_in_thread, daemon=True)
         thread.start()
@@ -64,7 +69,7 @@ def on_startup():
 def run_cli():
     print("==================================================")
     print("  Agent Milo — Universal Personal Assistant (PA)  ")
-    print("  GitHub -> Cloudflare / Hugging Face / Oracle    ")
+    print("  GitHub -> Render / Cloudflare / Oracle          ")
     print("==================================================")
     
     if len(sys.argv) > 1 and sys.argv[1] not in ["--telegram", "--server"]:
@@ -94,15 +99,15 @@ def run_cli():
             break
 
 def main():
-    port = int(os.getenv("PORT", "7860"))
+    port = int(os.getenv("PORT", "10000"))
     if "--telegram" in sys.argv:
         from src.telegram_bot import run_telegram_bot
         run_telegram_bot()
-    elif "--server" in sys.argv or os.getenv("SPACE_ID") or os.getenv("CONTAINER_PORT") or os.getenv("PORT"):
+    elif "--server" in sys.argv or os.getenv("SPACE_ID") or os.getenv("CONTAINER_PORT") or os.getenv("PORT") or os.getenv("RENDER"):
         print(f"Starting Agent Milo Web API & Telegram Server on port {port}...")
         uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
     else:
-        # Default for container execution: run FastAPI web server & Telegram bot thread
+        # Default for cloud deployment: run FastAPI web server & Telegram bot thread
         print(f"Starting Agent Milo 24/7 Cloud Server on port {port}...")
         uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
 

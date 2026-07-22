@@ -1,7 +1,9 @@
 import sys
 import os
+import time
 import asyncio
 import threading
+import requests
 from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 import uvicorn
@@ -30,6 +32,18 @@ def start_telegram_in_thread():
     except Exception as e:
         print(f"[Cloud Server] Telegram bot listener error: {e}")
 
+def keep_alive_ping():
+    """Background thread that pings the Render server every 10 minutes to prevent 15-min inactivity sleep."""
+    render_url = os.getenv("RENDER_EXTERNAL_URL", "https://milo-agent-7wtv.onrender.com")
+    time.sleep(30) # Initial wait after boot
+    while True:
+        try:
+            resp = requests.get(f"{render_url}/", timeout=10)
+            print(f"[Keep-Alive Ping] Sent HTTP ping to {render_url} -> HTTP {resp.status_code}")
+        except Exception as e:
+            print(f"[Keep-Alive Ping] Ping status: {e}")
+        time.sleep(600) # Ping every 10 minutes (600 seconds)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -43,6 +57,12 @@ async def lifespan(app: FastAPI):
         print("[Cloud Server] Agent Milo Telegram Bot thread initialized successfully!")
     else:
         print("[Cloud Server] Warning: TELEGRAM_BOT_TOKEN missing from environment secrets.")
+        
+    # Start Keep-Alive self-ping thread
+    ping_thread = threading.Thread(target=keep_alive_ping, daemon=True)
+    ping_thread.start()
+    print("[Cloud Server] Keep-Alive self-ping thread started (10-minute interval).")
+
     yield
 
 app = FastAPI(title="Agent Milo PA Service", lifespan=lifespan)

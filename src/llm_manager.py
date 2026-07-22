@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Load keys dynamically from environment variables or fallback
+# Load keys dynamically from environment variables (Round-Robin pooling of 14 keys)
 def load_api_keys():
     keys = []
     # Check GEMINI_API_KEY_1 through GEMINI_API_KEY_14
@@ -22,15 +22,28 @@ def load_api_keys():
             
     return keys
 
-# Prioritized list of supported 3.x models in descending order
+# Prioritized list of supported Gemini 3.x and 2.x models in descending tier order
 FULL_MODEL_WATERFALL = [
     "gemini-3.6-flash",
     "gemini-3.5-flash",
     "gemini-3.5-flash-cyber",
     "gemini-3.1-flash",
+    "gemini-2.5-flash",
     "gemini-3.5-flash-lite",
     "gemini-3.1-flash-lite",
+    "gemini-2.5-flash-lite",
     "gemini-3.0",
+]
+
+# Low-intelligence / routine sub-agent waterfall (preserves 3.6 Flash daily quota)
+ROUTINE_MODEL_WATERFALL = [
+    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash-lite",
+    "gemini-3.5-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-3.1-flash",
+    "gemini-3.5-flash",
+    "gemini-3.6-flash"
 ]
 
 class LLMManager:
@@ -39,14 +52,13 @@ class LLMManager:
         self.current_key_idx = 0
 
     def get_waterfall_for_intensity(self, intensity: str):
-        if intensity == "heavy" or intensity == "antigravity":
+        if intensity == "heavy" or intensity == "complex" or intensity == "antigravity":
             return FULL_MODEL_WATERFALL
         elif intensity == "cyber":
             idx = FULL_MODEL_WATERFALL.index("gemini-3.5-flash-cyber") if "gemini-3.5-flash-cyber" in FULL_MODEL_WATERFALL else 0
             return FULL_MODEL_WATERFALL[idx:]
-        elif intensity == "minimal":
-            idx = FULL_MODEL_WATERFALL.index("gemini-3.5-flash-lite") if "gemini-3.5-flash-lite" in FULL_MODEL_WATERFALL else 0
-            return FULL_MODEL_WATERFALL[idx:]
+        elif intensity in ["light", "routine", "minimal", "low"]:
+            return ROUTINE_MODEL_WATERFALL
         else:
             return FULL_MODEL_WATERFALL
 
@@ -84,6 +96,6 @@ class LLMManager:
 
             self.current_key_idx = (self.current_key_idx + 1) % len(self.keys)
 
-        raise Exception("FATAL: Exhausted all API keys and all models in the waterfall!")
+        raise Exception("FATAL: Exhausted all 14 API keys and all models in the waterfall!")
 
 llm_manager = LLMManager()

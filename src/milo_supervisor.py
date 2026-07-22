@@ -24,12 +24,13 @@ Your Available Tool Names:
 - Browser & Research: web_search, read_webpage, browse_web, download_file, summarize_content
 
 Your Objective:
-Analyze the user's request and output a JSON execution plan with the sub-agent role and assigned tools.
+Analyze the user's request and output a JSON execution plan with the sub-agent role, assigned tools, and task complexity ('complex' for heavy reasoning/coding or 'routine' for simple search/fetching/posting).
 
 Format your response strictly as JSON:
 {
   "plan_description": "Brief breakdown of what needs to be done",
   "sub_agent_role": "Descriptive Role (e.g., Social Media Specialist / DevOps Engineer / Content Researcher)",
+  "task_complexity": "complex" or "routine",
   "assigned_tools": ["list_of_tool_names_from_above"],
   "task_instructions": "Specific task prompt for the sub-agent"
 }
@@ -37,7 +38,7 @@ Format your response strictly as JSON:
 
 def milo_supervisor_node(state: AgentState):
     """
-    Agent Milo's Supervisor Node. Parses user requests into dynamic sub-agent execution plans.
+    Agent Milo's Supervisor Node. Parses user requests into dynamic sub-agent execution plans using 14-key pooling and model waterfall.
     """
     messages = state['messages']
     
@@ -48,7 +49,6 @@ def milo_supervisor_node(state: AgentState):
     
     content = get_clean_content_str(response.content)
     
-    # Try parsing JSON plan
     plan = None
     try:
         start_idx = content.find("{")
@@ -62,11 +62,12 @@ def milo_supervisor_node(state: AgentState):
         plan = {
             "plan_description": "Direct Assistant Execution",
             "sub_agent_role": "Universal General Assistant",
+            "task_complexity": "routine",
             "assigned_tools": list(TOOL_REGISTRY.keys()),
             "task_instructions": get_clean_content_str(messages[-1]["content"]) if messages else "Fulfill user request"
         }
         
-    print(f"[Milo Supervisor] Planned Sub-Agent: '{plan['sub_agent_role']}' with tools {plan['assigned_tools']}")
+    print(f"[Milo Supervisor] Planned Sub-Agent: '{plan['sub_agent_role']}' (Complexity: {plan.get('task_complexity', 'routine')}) with tools {plan['assigned_tools']}")
     return {"sub_tasks": [plan]}
 
 def dynamic_sub_agent_node(state: AgentState):
@@ -81,13 +82,14 @@ def dynamic_sub_agent_node(state: AgentState):
     role = current_plan.get("sub_agent_role", "General Assistant")
     task = current_plan.get("task_instructions", "")
     tools = current_plan.get("assigned_tools", [])
+    complexity = current_plan.get("task_complexity", "routine")
     
     result = run_agent(
         role_description=role,
         task=task,
         tool_names=tools,
         messages=state['messages'],
-        intensity="heavy"
+        intensity=complexity
     )
     
     return {"current_result": result, "messages": [{"role": "assistant", "content": f"[{role} Execution Result]:\n{result}"}]}

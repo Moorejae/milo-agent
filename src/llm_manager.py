@@ -31,33 +31,42 @@ def load_api_keys():
                 
     return keys
 
-# Comprehensive, prioritized list of all valid Gemini models transcribed directly from n8n & Google AI Studio
+# Corrected Waterfall Priority:
+# Tier 1: Highest Intelligence 3.x Flagships (3.6-flash, 3.5-flash, 3.1-pro, pro-latest)
+# Tier 2: High-Quota Gemma Models (gemma-4-31b-it, gemma-4-26b-a4b-it -> 14,000 Requests/Day!)
+# Tier 3: High-Speed 2.5/2.0 Flash & Lite Fallbacks
 FULL_MODEL_WATERFALL = [
+    # --- TIER 1: FLAGSHIP 3.X SMARTEST MODELS FIRST ---
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.1-pro-preview",
+    "gemini-pro-latest",
+    "gemini-flash-latest",
+    
+    # --- TIER 2: 14,000 RPD MASSIVE QUOTA GEMMA MODELS ---
+    "gemma-4-31b-it",
+    "gemma-4-26b-a4b-it",
+    "gemma-2-27b-it",
+
+    # --- TIER 3: HIGH-SPEED FLASH & 2.X FALLBACKS ---
+    "gemini-3.5-flash-lite",
     "gemini-2.5-pro",
     "gemini-2.5-flash",
     "gemini-2.0-flash",
     "gemini-2.0-flash-lite",
-    "gemini-2.5-flash-lite",
-    "gemini-3.6-flash",
-    "gemini-3.5-flash",
-    "gemini-3.5-flash-lite",
-    "gemini-flash-latest",
-    "gemini-pro-latest",
-    "gemini-flash-lite-latest",
     "gemini-1.5-pro",
     "gemini-1.5-flash"
 ]
 
-# Upgraded high-speed routine waterfall (replaces dull 3.1-lite with sharp 2.5 & 2.0 Flash models)
+# Routine waterfall prioritizing 3.5/3.6 Flash and 14k RPD Gemma before 2.x fallbacks
 ROUTINE_MODEL_WATERFALL = [
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-2.5-flash-lite",
-    "gemini-2.0-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-3.6-flash",
+    "gemma-4-31b-it",
+    "gemma-4-26b-a4b-it",
     "gemini-3.5-flash-lite",
-    "gemini-flash-latest",
-    "gemini-flash-lite-latest",
-    "gemini-3.5-flash"
+    "gemini-2.5-flash",
+    "gemini-2.0-flash"
 ]
 
 class LLMManager:

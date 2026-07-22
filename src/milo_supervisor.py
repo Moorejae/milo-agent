@@ -14,69 +14,54 @@ class AgentState(TypedDict):
     final_output: str
 
 SYSTEM_SUPERVISOR_PROMPT = """
-You are Agent Milo — an elite, open-ended digital Personal Assistant.
-You are high-IQ, sophisticated, authentic, and speak in clean, natural human prose.
+You are Agent Milo — an autonomous, highly intelligent digital Personal Assistant.
+You have unrestricted creative freedom to assist your user with any request, task, decision, or project.
 
-STRICT FORMATTING & STYLE RULES:
-1. NEVER use generic robot speech, bullet points ('-'), asterisks ('**'), hyphens, or brackets ('[...]') when speaking to the user.
-2. Communicate cleanly, directly, and naturally like a sharp human personal assistant.
-3. No meta-labels, no section headers like "Hook:" or "Execution Result:".
-4. If the user gives a correction or preference, remember it and apply it instantly.
+Core Directive:
+- Adapt naturally to any order without artificial limits or rigid boilerplate text.
+- Communicate with authentic, high-IQ human eloquence.
+- Never use robotic formatting like asterisks ('**'), bullet point hyphens ('-'), or bracketed meta-labels.
 
 Learned Knowledge & Guidelines from Second Brain (Obsidian Vault):
 {vault_context}
 
-Available Tools:
-- Memory & Intelligence: search_second_brain, write_lesson, pinterest_search, pinterest_pin
-- Code & Development: write_file, run_code, github_push, ssh_execute
-- Communication & Productivity: send_email, read_email, calendar_event, draft_document
-- Media & Content Creation: text_to_speech, edit_video
-- Social Media Management: post_to_x, post_to_instagram, post_to_linkedin, post_to_youtube, schedule_post
-- Browser & Research: web_search, read_webpage, browse_web, download_file, summarize_content
-
-Your Objective:
-Analyze the user's request and output a JSON execution plan with the sub-agent role, assigned tools, and task complexity ('complex' or 'routine').
+Available System Tools:
+search_second_brain, write_lesson, pinterest_search, pinterest_pin, write_file, run_code, github_push, ssh_execute, send_email, read_email, calendar_event, draft_document, text_to_speech, edit_video, post_to_x, post_to_instagram, post_to_linkedin, post_to_youtube, schedule_post, web_search, read_webpage, browse_web, download_file, summarize_content
 
 Format your response strictly as JSON:
 {{
-  "plan_description": "Brief breakdown of what needs to be done",
-  "sub_agent_role": "Descriptive Role (e.g., Social Media Specialist / DevOps Engineer / Content Researcher)",
+  "plan_description": "Execution plan",
+  "sub_agent_role": "Dynamic Role Description",
   "task_complexity": "complex" or "routine",
-  "assigned_tools": ["list_of_tool_names_from_above"],
+  "assigned_tools": ["list_of_tool_names"],
   "task_instructions": "Specific task prompt for the sub-agent"
 }}
 """
 
 def clean_human_output(text: str) -> str:
-    """Strips robotic formatting, brackets, asterisks, bullet dashes, and execution headers."""
+    """Strips any leftover robotic formatting, brackets, asterisks, or execution headers."""
     if not text:
         return ""
-    # Strip role execution wrappers like [Social Media Specialist Execution Result]:
     text = re.sub(r'\[.*?Execution Result\]:?', '', text, flags=re.IGNORECASE)
-    # Strip markdown asterisks and bold/italic markup
     text = text.replace("**", "").replace("*", "")
-    # Strip bullet hyphens at start of lines
     text = re.sub(r'^\s*[-•]\s*', '', text, flags=re.MULTILINE)
-    # Clean excessive newlines
     text = re.sub(r'\n{3,}', '\n\n', text)
     return text.strip()
 
 def auto_learn_from_user(user_input: str):
-    """Detects if user is offering corrections or preferences and auto-saves to Second Brain."""
-    triggers = ["don't use", "stop using", "remember to", "prefer", "never use", "make sure to", "correction", "from now on", "bad"]
+    """Detects user corrections or preferences and auto-saves to Second Brain Vault."""
+    triggers = ["don't use", "stop using", "remember to", "prefer", "never use", "make sure to", "correction", "from now on", "bad", "hardcode"]
     if any(t in user_input.lower() for t in triggers):
-        print(f"[Auto-Learning Loop] Detected user preference/correction: '{user_input[:80]}...' -> Syncing to Second Brain Vault!")
-        memory_manager.write_lesson(title=f"User Preference {user_input[:30]}", content=user_input)
+        print(f"[Auto-Learning Loop] Syncing user correction to Second Brain Vault: '{user_input[:80]}...'")
+        memory_manager.write_lesson(title=f"User Guideline {user_input[:30]}", content=user_input)
 
 def milo_supervisor_node(state: AgentState):
     messages = state['messages']
     last_user_msg = get_clean_content_str(messages[-1]["content"]) if messages else ""
     
-    # Check if user is teaching/correcting Milo and auto-learn into Obsidian vault
     if last_user_msg:
         auto_learn_from_user(last_user_msg)
         
-    # Retrieve knowledge & preferences from Second Brain
     lessons = list(memory_manager.query_lessons(last_user_msg)) + list(memory_manager.query_how_i_think(last_user_msg))
     vault_context = "\n".join([f"- {l}" for l in lessons]) if lessons else "No specific vault guidelines found for this topic yet."
     
@@ -107,7 +92,7 @@ def milo_supervisor_node(state: AgentState):
             "task_instructions": last_user_msg or "Fulfill user request"
         }
         
-    print(f"[Milo Supervisor] Planned Sub-Agent: '{plan['sub_agent_role']}' (Complexity: {plan.get('task_complexity', 'routine')}) with tools {plan['assigned_tools']}")
+    print(f"[Milo Supervisor] Planned Sub-Agent: '{plan['sub_agent_role']}' (Complexity: {plan.get('task_complexity', 'routine')})")
     return {"sub_tasks": [plan]}
 
 def dynamic_sub_agent_node(state: AgentState):

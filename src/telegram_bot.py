@@ -15,9 +15,7 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = (
-        "🤖 Agent Milo — Personal Assistant Online\n\n"
-        "I am Milo, your digital PA. Give me any order or task and I will deploy "
-        "specialized sub-agents and tools to execute it for you.\n\n"
+        "Agent Milo — Personal Assistant Online\n\n"
         "How can I assist you today?"
     )
     await update.message.reply_text(welcome_text)
@@ -32,8 +30,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     logger.info(f"Received Telegram message from {user_name} ({chat_id}): '{user_text}'")
     
-    status_msg = await update.message.reply_text("⚡ Milo is analyzing your request and deploying sub-agents...")
-    
     try:
         initial_state = {
             "messages": [{"role": "user", "content": user_text}], 
@@ -42,7 +38,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "final_output": ""
         }
         
-        # Invoke Milo Supervisor graph asynchronously
+        # Invoke Milo Supervisor graph asynchronously (No hardcoded status messages!)
         loop = asyncio.get_running_loop()
         output_state = await loop.run_in_executor(None, milo_app.invoke, initial_state)
         
@@ -51,15 +47,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             last_msg = messages[-1]
             response_text = get_clean_content_str(last_msg.get("content", ""))
         else:
-            response_text = output_state.get("current_result", "Task completed successfully.")
-            
-        # Delete temporary status message
-        try:
-            await status_msg.delete()
-        except Exception:
-            pass
+            response_text = output_state.get("current_result", "Done.")
 
-        # Send response back to user in chunks without Markdown parse errors
+        # Send clean response back to user directly
         if len(response_text) > 4000:
             for chunk in [response_text[i:i+4000] for i in range(0, len(response_text), 4000)]:
                 await update.message.reply_text(chunk)
@@ -68,7 +58,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             
     except Exception as e:
         logger.error(f"Error handling Telegram message: {e}", exc_info=True)
-        await update.message.reply_text(f"❌ Error processing request: {str(e)}")
+        await update.message.reply_text(f"Error: {str(e)}")
 
 def run_telegram_bot():
     token = os.getenv("TELEGRAM_BOT_TOKEN", "")
@@ -84,7 +74,6 @@ def run_telegram_bot():
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    # Disable OS signal traps (stop_signals=None) so python-telegram-bot runs inside background thread
     app.run_polling(stop_signals=None, close_loop=False)
 
 if __name__ == "__main__":

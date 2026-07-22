@@ -12,10 +12,20 @@ from src.llm_manager import load_api_keys
 
 load_dotenv()
 
+_telegram_started = False
+_telegram_lock = threading.Lock()
+
 def start_telegram_in_thread():
+    global _telegram_started
+    with _telegram_lock:
+        if _telegram_started:
+            print("[Cloud Server] Telegram Bot thread is ALREADY running. Skipping duplicate spawn request.")
+            return
+        _telegram_started = True
+
     try:
         from src.telegram_bot import run_telegram_bot
-        print("[Cloud Server] Spawning background Telegram Bot listener...")
+        print("[Cloud Server] Spawning single background Telegram Bot listener...")
         run_telegram_bot()
     except Exception as e:
         print(f"[Cloud Server] Telegram bot listener error: {e}")
@@ -107,11 +117,11 @@ def main():
         run_telegram_bot()
     elif "--server" in sys.argv or os.getenv("SPACE_ID") or os.getenv("CONTAINER_PORT") or os.getenv("PORT") or os.getenv("RENDER"):
         print(f"Starting Agent Milo Web API & Telegram Server on port {port}...")
-        uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
+        uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False, workers=1)
     else:
         # Default for cloud deployment: run FastAPI web server & Telegram bot thread
         print(f"Starting Agent Milo 24/7 Cloud Server on port {port}...")
-        uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
+        uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False, workers=1)
 
 if __name__ == "__main__":
     main()

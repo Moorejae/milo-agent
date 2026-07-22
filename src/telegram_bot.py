@@ -1,6 +1,7 @@
 import os
 import asyncio
 import logging
+import requests
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.error import Conflict
@@ -62,7 +63,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def telegram_error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles exceptions, gracefully handling temporary 409 Conflict during cloud redeploys."""
     if isinstance(context.error, Conflict):
-        logger.warning("[Telegram Bot] 409 Conflict: Old container shutting down during redeploy. Retrying connection...")
+        logger.warning("[Telegram Bot] 409 Conflict: Resolving session collision with previous container...")
     else:
         logger.error(f"[Telegram Bot Error]: {context.error}")
 
@@ -76,12 +77,17 @@ def run_telegram_bot():
     print("  Agent Milo — Telegram Bot Listener Online      ")
     print("==================================================")
     
+    # Pre-emptively clear any webhooks or old polling sessions on Telegram servers
+    try:
+        requests.post(f"https://api.telegram.org/bot{token}/deleteWebhook?drop_pending_updates=true", timeout=5)
+    except Exception as e:
+        print(f"[Telegram Bot] Pre-clean webhook status: {e}")
+
     app = ApplicationBuilder().token(token).build()
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     app.add_error_handler(telegram_error_handler)
     
-    # Pass drop_pending_updates=True to clear lingering webhooks/updates during redeploys
     app.run_polling(drop_pending_updates=True, stop_signals=None, close_loop=False)
 
 if __name__ == "__main__":

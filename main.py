@@ -2,6 +2,7 @@ import sys
 import os
 import asyncio
 import threading
+from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 import uvicorn
 from fastapi import FastAPI, Request
@@ -11,7 +12,30 @@ from src.llm_manager import load_api_keys
 
 load_dotenv()
 
-app = FastAPI(title="Agent Milo PA Service")
+def start_telegram_in_thread():
+    try:
+        from src.telegram_bot import run_telegram_bot
+        print("[Cloud Server] Spawning background Telegram Bot listener...")
+        run_telegram_bot()
+    except Exception as e:
+        print(f"[Cloud Server] Telegram bot listener error: {e}")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    keys = load_api_keys()
+    print(f"[STARTUP] TELEGRAM_BOT_TOKEN loaded: {'YES (' + token[:6] + '...)' if token else 'NO'}")
+    print(f"[STARTUP] Loaded {len(keys)} GEMINI API keys from environment.")
+    
+    if token:
+        thread = threading.Thread(target=start_telegram_in_thread, daemon=True)
+        thread.start()
+        print("[Cloud Server] Agent Milo Telegram Bot thread initialized successfully!")
+    else:
+        print("[Cloud Server] Warning: TELEGRAM_BOT_TOKEN missing from environment secrets.")
+    yield
+
+app = FastAPI(title="Agent Milo PA Service", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -43,28 +67,6 @@ async def chat_endpoint(request: Request):
     messages = output_state.get("messages", [])
     response_text = get_clean_content_str(messages[-1].get("content", "")) if messages else output_state.get("current_result", "Done")
     return {"reply": response_text}
-
-def start_telegram_in_thread():
-    try:
-        from src.telegram_bot import run_telegram_bot
-        print("[Cloud Server] Spawning background Telegram Bot listener...")
-        run_telegram_bot()
-    except Exception as e:
-        print(f"[Cloud Server] Telegram bot listener error: {e}")
-
-@app.on_event("startup")
-def on_startup():
-    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
-    keys = load_api_keys()
-    print(f"[STARTUP] TELEGRAM_BOT_TOKEN loaded: {'YES (' + token[:6] + '...)' if token else 'NO'}")
-    print(f"[STARTUP] Loaded {len(keys)} GEMINI API keys from environment.")
-    
-    if token:
-        thread = threading.Thread(target=start_telegram_in_thread, daemon=True)
-        thread.start()
-        print("[Cloud Server] Agent Milo Telegram Bot thread initialized successfully!")
-    else:
-        print("[Cloud Server] Warning: TELEGRAM_BOT_TOKEN missing from environment secrets.")
 
 def run_cli():
     print("==================================================")

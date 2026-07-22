@@ -84,7 +84,8 @@ def run_telegram_bot():
     app.add_handler(CommandHandler("start", start_command))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    app.run_polling()
+    # Disable OS signal traps (stop_signals=None) so python-telegram-bot runs inside background thread
+    app.run_polling(stop_signals=None, close_loop=False)
 
 if __name__ == "__main__":
     run_telegram_bot()

@@ -9,7 +9,7 @@ load_dotenv()
 def load_api_keys():
     keys = []
     
-    # 1. Check GEMINI_API_KEY_LOOP (comma-separated list of 14 keys like in idea-684)
+    # 1. Check GEMINI_API_KEY_LOOP (comma-separated list of 14 keys)
     loop_val = os.getenv("GEMINI_API_KEY_LOOP")
     if loop_val:
         parts = [k.strip() for k in loop_val.split(",") if k.strip()]
@@ -31,28 +31,33 @@ def load_api_keys():
                 
     return keys
 
-# Prioritized list of supported Gemini 3.x and 2.x models in descending tier order
+# Comprehensive, prioritized list of all valid Gemini models transcribed directly from n8n & Google AI Studio
 FULL_MODEL_WATERFALL = [
+    "gemini-2.5-pro",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-2.5-flash-lite",
     "gemini-3.6-flash",
     "gemini-3.5-flash",
-    "gemini-3.5-flash-cyber",
-    "gemini-3.1-flash",
-    "gemini-2.5-flash",
     "gemini-3.5-flash-lite",
-    "gemini-3.1-flash-lite",
-    "gemini-2.5-flash-lite",
-    "gemini-3.0",
+    "gemini-flash-latest",
+    "gemini-pro-latest",
+    "gemini-flash-lite-latest",
+    "gemini-1.5-pro",
+    "gemini-1.5-flash"
 ]
 
-# Low-intelligence / routine sub-agent waterfall (preserves 3.6 Flash daily quota)
+# Upgraded high-speed routine waterfall (replaces dull 3.1-lite with sharp 2.5 & 2.0 Flash models)
 ROUTINE_MODEL_WATERFALL = [
-    "gemini-3.1-flash-lite",
-    "gemini-2.5-flash-lite",
-    "gemini-3.5-flash-lite",
     "gemini-2.5-flash",
-    "gemini-3.1-flash",
-    "gemini-3.5-flash",
-    "gemini-3.6-flash"
+    "gemini-2.0-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash-lite",
+    "gemini-3.5-flash-lite",
+    "gemini-flash-latest",
+    "gemini-flash-lite-latest",
+    "gemini-3.5-flash"
 ]
 
 class LLMManager:
@@ -61,11 +66,8 @@ class LLMManager:
         self.current_key_idx = 0
 
     def get_waterfall_for_intensity(self, intensity: str):
-        if intensity == "heavy" or intensity == "complex" or intensity == "antigravity":
+        if intensity in ["heavy", "complex", "antigravity", "architect"]:
             return FULL_MODEL_WATERFALL
-        elif intensity == "cyber":
-            idx = FULL_MODEL_WATERFALL.index("gemini-3.5-flash-cyber") if "gemini-3.5-flash-cyber" in FULL_MODEL_WATERFALL else 0
-            return FULL_MODEL_WATERFALL[idx:]
         elif intensity in ["light", "routine", "minimal", "low"]:
             return ROUTINE_MODEL_WATERFALL
         else:
@@ -101,7 +103,7 @@ class LLMManager:
                 except Exception as e:
                     error_msg = str(e)
                     print(f" [FAILED] Model '{model_name}' on Key #{self.current_key_idx + 1} -> {error_msg[:120]}...")
-                    time.sleep(0.5)
+                    time.sleep(0.3)
 
             self.current_key_idx = (self.current_key_idx + 1) % len(self.keys)
 

@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import threading
 from github import Github
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
@@ -9,31 +10,28 @@ REPO_NAME = os.getenv("OBSIDIAN_REPO_NAME", "my-obsidian-vault")
 class HiveQueenVault:
     """
     Obsidian Vault Schema & State Manager for Hive-Queen Agent Milo.
-    Manages:
-    - /state.canvas (Obsidian JSON Canvas DAG Task Graph)
-    - /agents/registry.md (Sub-Agent Script Registry with schemas, decay, stats)
-    - /agents/scripts/{agent_id}.py (Version-controlled generated micro-task scripts)
-    - /logs/{task_id}.md (Full execution logs)
-    - /decisions.md (Append-only log of choices & human confirmations)
-    - /lineage.md (Parent -> Child script genealogy tracking)
-    - /ledger.md (Resource cost tracking per micro-task)
+    Optimized with repo caching and asynchronous background commits.
     """
 
     def __init__(self):
+        self._repo = None
         try:
             self.github = Github(GITHUB_TOKEN) if GITHUB_TOKEN else None
         except Exception:
             self.github = None
 
     def _get_repo(self):
+        if self._repo:
+            return self._repo
         if not self.github:
             return None
         try:
             user = self.github.get_user()
             try:
-                return user.get_repo(REPO_NAME)
+                self._repo = user.get_repo(REPO_NAME)
             except Exception:
-                return user.create_repo(REPO_NAME, private=True)
+                self._repo = user.create_repo(REPO_NAME, private=True)
+            return self._repo
         except Exception as e:
             print(f"[HiveQueenVault] GitHub repo access error: {e}")
             return None
@@ -64,10 +62,17 @@ class HiveQueenVault:
             print(f"[HiveQueenVault] Error writing '{path}': {e}")
             return False
 
+    def write_file_async(self, path: str, content: str, commit_msg: str = "Update vault file"):
+        """Dispatches GitHub write to a background thread to prevent HTTP blocking."""
+        thread = threading.Thread(target=self.write_file, args=(path, content, commit_msg), daemon=True)
+        thread.start()
+
     def append_log(self, path: str, entry: str, title_fallback: str = "Log"):
-        current = self.read_file(path, default=f"# {title_fallback}\n\n")
-        updated = current.strip() + f"\n\n{entry.strip()}\n"
-        self.write_file(path, updated, commit_msg=f"Append to {path}")
+        def _bg_append():
+            current = self.read_file(path, default=f"# {title_fallback}\n\n")
+            updated = current.strip() + f"\n\n{entry.strip()}\n"
+            self.write_file(path, updated, commit_msg=f"Append to {path}")
+        threading.Thread(target=_bg_append, daemon=True).start()
 
     # --- REGISTRY MD MANAGER ---
     def get_registry(self) -> str:
@@ -79,20 +84,18 @@ class HiveQueenVault:
         return self.read_file("agents/registry.md", default=default_registry)
 
     def register_sub_agent(self, agent_id: str, purpose: str, input_schema: str, output_schema: str, script_path: str):
-        registry_text = self.get_registry()
-        today = time.strftime("%Y-%m-%d")
-        new_row = f"| {agent_id} | {purpose} | `{input_schema}` | `{output_schema}` | {script_path} | {today} | {today} | 1 | 100% | $0.00 | 0 | active |"
-        
-        if agent_id in registry_text:
-            # Update existing row status
-            print(f"[HiveQueenVault] Sub-Agent '{agent_id}' already registered.")
-        else:
-            registry_text += f"\n{new_row}"
-            self.write_file("agents/registry.md", registry_text, commit_msg=f"Register sub-agent: {agent_id}")
+        def _bg_register():
+            registry_text = self.get_registry()
+            today = time.strftime("%Y-%m-%d")
+            new_row = f"| {agent_id} | {purpose} | `{input_schema}` | `{output_schema}` | {script_path} | {today} | {today} | 1 | 100% | $0.00 | 0 | active |"
+            if agent_id not in registry_text:
+                registry_text += f"\n{new_row}"
+                self.write_file("agents/registry.md", registry_text, commit_msg=f"Register sub-agent: {agent_id}")
+        threading.Thread(target=_bg_register, daemon=True).start()
 
     # --- STATE CANVAS MANAGER ---
     def update_canvas(self, objective_id: str, raw_ask: str, microtasks: list):
-        """Generates & updates state.canvas JSON structure in Obsidian format."""
+        """Generates & updates state.canvas JSON structure in Obsidian format asynchronously."""
         canvas_data = {
             "nodes": [
                 {
@@ -123,7 +126,7 @@ class HiveQueenVault:
             })
             y_offset += 240
 
-        self.write_file("state.canvas", json.dumps(canvas_data, indent=2), commit_msg=f"Update state.canvas for {objective_id}")
+        self.write_file_async("state.canvas", json.dumps(canvas_data, indent=2), commit_msg=f"Update state.canvas for {objective_id}")
 
     # --- DECISIONS & LINEAGE LOGGERS ---
     def log_decision(self, decision: str, justification: str):
@@ -131,10 +134,12 @@ class HiveQueenVault:
         self.append_log("decisions.md", entry, title_fallback="Architectural Decisions Log")
 
     def log_lineage(self, parent_id: str, child_id: str, reason: str):
-        entry = f"| {parent_id} | {child_id} | {reason} | {time.strftime('%Y-%m-%d')} |"
-        header = "# Agent Lineage & Genealogy\n\n| Parent Agent | Child Agent | Fork Reason | Date |\n|---|---|---|---|\n"
-        current = self.read_file("lineage.md", default=header)
-        updated = current.strip() + f"\n{entry}"
-        self.write_file("lineage.md", updated, commit_msg=f"Fork lineage: {parent_id} -> {child_id}")
+        def _bg_lineage():
+            entry = f"| {parent_id} | {child_id} | {reason} | {time.strftime('%Y-%m-%d')} |"
+            header = "# Agent Lineage & Genealogy\n\n| Parent Agent | Child Agent | Fork Reason | Date |\n|---|---|---|---|\n"
+            current = self.read_file("lineage.md", default=header)
+            updated = current.strip() + f"\n{entry}"
+            self.write_file("lineage.md", updated, commit_msg=f"Fork lineage: {parent_id} -> {child_id}")
+        threading.Thread(target=_bg_lineage, daemon=True).start()
 
 hive_vault = HiveQueenVault()

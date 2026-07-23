@@ -22,7 +22,7 @@ Operational Protocol:
 2. Audit: Check if an active sub-agent script exists in registry that matches purpose AND schema.
 3. Manufacture: If no match, write a single-purpose Python script for the micro-task. Single responsibility, structured logging, no hardcoded secrets.
 4. Deploy & Supervise (Parallel Execution): Launch sub-agents concurrently using Task ID format {objective_id}.{microtask_index}.{attempt_number}. Poll logs. Max 3 retries on logic errors before escalating to user.
-5. Missing API Keys / Credentials Escalation: If a tool output or execution trace reveals a missing API key or credential (e.g. X_API_KEY missing, FACEBOOK_ACCESS_TOKEN missing, PINTEREST_ACCESS_TOKEN missing), IMMEDIATELY ask the user on Telegram to provide the key or set the environment variable.
+5. Missing API Keys / Credentials Escalation: If a tool output or execution trace reveals a missing API key or credential (e.g. X_API_KEY missing, PINTEREST_ACCESS_TOKEN missing, LINKEDIN_ACCESS_TOKEN missing), IMMEDIATELY ask the user on Telegram to provide the key or set the environment variable.
 6. Synthesize: Reconcile outputs against original objective (Objective Drift Check), update state.canvas, decisions.md, and reply on Telegram cleanly.
 
 Negative Constraints:
@@ -44,7 +44,6 @@ class HiveQueenEngine:
 
         print(f"[Hive-Queen Audit] Micro-task [{idx+1}]: '{mt_name}' (Agent ID: {agent_id})")
 
-        # Check if script exists in registry/GitHub
         existing_script = self.vault.read_file(script_path, default="")
 
         if not existing_script or mt.get("requires_manufacture", False):
@@ -64,12 +63,12 @@ class HiveQueenEngine:
                     {"role": "system", "content": HIVE_QUEEN_SYSTEM_PROMPT},
                     {"role": "user", "content": manufacture_prompt}
                 ],
-                intensity="heavy"
+                intensity="routine"
             )
             script_code = get_clean_content_str(code_resp.content)
             script_code = script_code.replace("```python", "").replace("```", "").strip()
 
-            self.vault.write_file(script_path, script_code, commit_msg=f"Manufacture agent script: {agent_id}")
+            self.vault.write_file_async(script_path, script_code, commit_msg=f"Manufacture agent script: {agent_id}")
             self.vault.register_sub_agent(
                 agent_id=agent_id,
                 purpose=mt_name,
@@ -114,6 +113,18 @@ class HiveQueenEngine:
         print(f"[Hive-Queen Milo] Received Objective {objective_id}: '{raw_user_ask}'")
         print(f"==================================================")
 
+        # Fast path for simple greetings or short conversational messages
+        words = raw_user_ask.strip().split()
+        if len(words) <= 5 and any(w.lower() in ["hi", "hello", "hey", "test", "ready", "status", "who are you", "help"] for w in words):
+            resp = llm_manager.invoke_with_waterfall(
+                prompt_or_messages=[
+                    {"role": "system", "content": "You are Agent Milo — an autonomous digital Personal Assistant. Respond directly, politely, and eloquently in 1-2 natural sentences without robotic fluff or bullet points."},
+                    {"role": "user", "content": raw_user_ask}
+                ],
+                intensity="routine"
+            )
+            return get_clean_content_str(resp.content)
+
         # 1. ANALYZE (Decompose objective into micro-tasks DAG)
         analysis_prompt = (
             f"Objective: {raw_user_ask}\n\n"
@@ -131,7 +142,7 @@ class HiveQueenEngine:
                 {"role": "system", "content": HIVE_QUEEN_SYSTEM_PROMPT},
                 {"role": "user", "content": analysis_prompt}
             ],
-            intensity="heavy"
+            intensity="routine"
         )
         
         content = get_clean_content_str(response.content)
@@ -154,6 +165,7 @@ class HiveQueenEngine:
                 "requires_manufacture": False
             }]
 
+        # Async background update to Obsidian state.canvas (zero blocking)
         self.vault.update_canvas(objective_id, raw_user_ask, microtasks)
 
         # 2. PARALLEL DEPLOYMENT & SUPERVISION OF SUB-AGENTS

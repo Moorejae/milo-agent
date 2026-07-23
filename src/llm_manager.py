@@ -1,9 +1,13 @@
 import os
 import time
+import warnings
 from langchain_google_genai import ChatGoogleGenerativeAI
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Suppress fixed sampling defaults UserWarnings for 3.5/3.6 models
+warnings.filterwarnings("ignore", category=UserWarning, module="langchain_google_genai")
 
 # Load keys dynamically from environment variables (Supports GEMINI_API_KEY_LOOP comma-separated string)
 def load_api_keys():
@@ -46,8 +50,7 @@ FULL_MODEL_WATERFALL = [
     # --- TIER 2: 14,000 RPD MASSIVE QUOTA GEMMA MODELS ---
     "gemma-4-31b-it",
     "gemma-4-26b-a4b-it",
-    "gemma-2-27b-it",
-
+    
     # --- TIER 3: HIGH-SPEED FLASH & 2.X FALLBACKS ---
     "gemini-3.5-flash-lite",
     "gemini-2.5-pro",
@@ -96,12 +99,16 @@ class LLMManager:
             for model_name in waterfall:
                 print(f"[LLM Waterfall] Key #{self.current_key_idx + 1}/{len(self.keys)} | Trying Model: '{model_name}' (Intensity: {intensity})")
                 try:
-                    llm = ChatGoogleGenerativeAI(
-                        model=model_name,
-                        google_api_key=current_key,
-                        temperature=0.2,
-                        max_retries=0
-                    )
+                    # Omit temperature for 3.5/3.6 models to avoid UserWarnings
+                    kwargs = {
+                        "model": model_name,
+                        "google_api_key": current_key,
+                        "max_retries": 0
+                    }
+                    if not ("3.6" in model_name or "3.5" in model_name or "lite" in model_name):
+                        kwargs["temperature"] = 0.2
+
+                    llm = ChatGoogleGenerativeAI(**kwargs)
                     if tools:
                         llm = llm.bind_tools(tools)
                         

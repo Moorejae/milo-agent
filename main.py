@@ -15,15 +15,17 @@ from src.llm_manager import load_api_keys
 load_dotenv()
 
 def keep_alive_ping():
-    """Background thread that pings the Render server every 10 minutes to prevent 15-min inactivity sleep."""
-    render_url = os.getenv("RENDER_EXTERNAL_URL", "https://milo-agent-7wtv.onrender.com")
+    """Background thread that pings both Milo and n8n Render servers every 10 minutes to prevent 15-min inactivity sleep."""
+    milo_url = os.getenv("RENDER_EXTERNAL_URL", "https://milo-agent-7wtv.onrender.com")
+    n8n_url = os.getenv("N8N_RENDER_URL", "https://n8n-milo.onrender.com")
     time.sleep(30) # Initial wait after boot
     while True:
-        try:
-            resp = requests.get(f"{render_url}/", timeout=10)
-            print(f"[Keep-Alive Ping] Sent HTTP ping to {render_url} -> HTTP {resp.status_code}")
-        except Exception as e:
-            print(f"[Keep-Alive Ping] Ping status: {e}")
+        for url in [milo_url, n8n_url]:
+            try:
+                resp = requests.get(f"{url}/", timeout=10)
+                print(f"[Keep-Alive Ping] Sent HTTP ping to {url} -> HTTP {resp.status_code}")
+            except Exception as e:
+                print(f"[Keep-Alive Ping] Ping {url} status: {e}")
         time.sleep(600) # Ping every 10 minutes (600 seconds)
 
 @asynccontextmanager
@@ -35,7 +37,7 @@ async def lifespan(app: FastAPI):
     # Start Keep-Alive self-ping thread
     ping_thread = threading.Thread(target=keep_alive_ping, daemon=True)
     ping_thread.start()
-    print("[Cloud Server] Keep-Alive self-ping thread started (10-minute interval).")
+    print("[Cloud Server] Keep-Alive self-ping thread started for Milo & n8n (10-minute interval).")
 
     yield
 
@@ -55,7 +57,7 @@ def health_check():
         "status": "online",
         "service": "Agent Milo — Universal Personal Assistant",
         "mode": "n8n AI Engine & Webhook API Gateway",
-        "architecture": "Telegram -> n8n (Docker) -> Milo API (Render) -> GitHub"
+        "architecture": "Telegram -> n8n Cloud (Render) -> Milo API (Render) -> GitHub"
     }
 
 @app.post("/api/chat")

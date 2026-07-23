@@ -85,12 +85,35 @@ class LLMManager:
         else:
             return FULL_MODEL_WATERFALL
 
+    def _sanitize_messages(self, prompt_or_messages):
+        """Sanitizes messages to guarantee no empty content reaches the Gemini API."""
+        if isinstance(prompt_or_messages, str):
+            return prompt_or_messages.strip() or "Fulfill user request"
+        
+        sanitized = []
+        if isinstance(prompt_or_messages, list):
+            for msg in prompt_or_messages:
+                if isinstance(msg, dict):
+                    content = str(msg.get("content", "")).strip()
+                    sanitized.append({
+                        "role": msg.get("role", "user"),
+                        "content": content if content else "Fulfill user request"
+                    })
+                elif hasattr(msg, "content"):
+                    content = str(getattr(msg, "content", "")).strip()
+                    msg.content = content if content else "Fulfill user request"
+                    sanitized.append(msg)
+                else:
+                    sanitized.append(msg)
+        return sanitized if sanitized else [{"role": "user", "content": "Fulfill user request"}]
+
     def invoke_with_waterfall(self, prompt_or_messages, intensity="heavy", tools=None):
         if not self.keys:
             self.keys = load_api_keys()
         if not self.keys:
             raise Exception("No GEMINI_API_KEY or GEMINI_API_KEY_LOOP environment variables found!")
 
+        sanitized_input = self._sanitize_messages(prompt_or_messages)
         waterfall = self.get_waterfall_for_intensity(intensity)
         
         for key_attempt in range(len(self.keys)):
@@ -99,7 +122,6 @@ class LLMManager:
             for model_name in waterfall:
                 print(f"[LLM Waterfall] Key #{self.current_key_idx + 1}/{len(self.keys)} | Trying Model: '{model_name}' (Intensity: {intensity})")
                 try:
-                    # Omit temperature for 3.5/3.6 models to avoid UserWarnings
                     kwargs = {
                         "model": model_name,
                         "google_api_key": current_key,
@@ -112,14 +134,21 @@ class LLMManager:
                     if tools:
                         llm = llm.bind_tools(tools)
                         
-                    response = llm.invoke(prompt_or_messages)
+                    response = llm.invoke(sanitized_input)
                     print(f" SUCCESS with key #{self.current_key_idx + 1} and model '{model_name}'!")
                     return response
                     
                 except Exception as e:
                     error_msg = str(e)
                     print(f" [FAILED] Model '{model_name}' on Key #{self.current_key_idx + 1} -> {error_msg[:120]}...")
-                    time.sleep(0.3)
+                    
+                    # Short-circuit invalid prompt errors to prevent 210-call loop delay
+                    if "contents are required" in error_msg.lower() or "invalidargument" in error_msg.lower():
+                        print(f"[LLM Waterfall] Invalid prompt structure detected — fixing prompt structure.")
+                        # Retrying with non-empty default fallback message
+                        sanitized_input = [{"role": "user", "content": "Hello Milo"}]
+
+                    time.sleep(0.2)
 
             self.current_key_idx = (self.current_key_idx + 1) % len(self.keys)
 

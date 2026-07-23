@@ -14,24 +14,6 @@ from src.llm_manager import load_api_keys
 
 load_dotenv()
 
-_telegram_started = False
-_telegram_lock = threading.Lock()
-
-def start_telegram_in_thread():
-    global _telegram_started
-    with _telegram_lock:
-        if _telegram_started:
-            print("[Cloud Server] Telegram Bot thread is ALREADY running. Skipping duplicate spawn request.")
-            return
-        _telegram_started = True
-
-    try:
-        from src.telegram_bot import run_telegram_bot
-        print("[Cloud Server] Spawning single background Telegram Bot listener...")
-        run_telegram_bot()
-    except Exception as e:
-        print(f"[Cloud Server] Telegram bot listener error: {e}")
-
 def keep_alive_ping():
     """Background thread that pings the Render server every 10 minutes to prevent 15-min inactivity sleep."""
     render_url = os.getenv("RENDER_EXTERNAL_URL", "https://milo-agent-7wtv.onrender.com")
@@ -46,17 +28,9 @@ def keep_alive_ping():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    token = os.getenv("TELEGRAM_BOT_TOKEN", "")
     keys = load_api_keys()
-    print(f"[STARTUP] TELEGRAM_BOT_TOKEN loaded: {'YES (' + token[:6] + '...)' if token else 'NO'}")
     print(f"[STARTUP] Loaded {len(keys)} GEMINI API keys from environment.")
-    
-    if token:
-        thread = threading.Thread(target=start_telegram_in_thread, daemon=True)
-        thread.start()
-        print("[Cloud Server] Agent Milo Telegram Bot thread initialized successfully!")
-    else:
-        print("[Cloud Server] Warning: TELEGRAM_BOT_TOKEN missing from environment secrets.")
+    print("[Cloud Server] Mode: Pure API Gateway & Reasoning Engine for n8n/Telegram Webhooks.")
         
     # Start Keep-Alive self-ping thread
     ping_thread = threading.Thread(target=keep_alive_ping, daemon=True)
@@ -80,7 +54,8 @@ def health_check():
     return {
         "status": "online",
         "service": "Agent Milo — Universal Personal Assistant",
-        "architecture": "GitHub -> Render / Cloudflare / Oracle"
+        "mode": "n8n AI Engine & Webhook API Gateway",
+        "architecture": "Telegram -> n8n (Docker) -> Milo API (Render) -> GitHub"
     }
 
 @app.post("/api/chat")
@@ -135,12 +110,8 @@ def main():
     if "--telegram" in sys.argv:
         from src.telegram_bot import run_telegram_bot
         run_telegram_bot()
-    elif "--server" in sys.argv or os.getenv("SPACE_ID") or os.getenv("CONTAINER_PORT") or os.getenv("PORT") or os.getenv("RENDER"):
-        print(f"Starting Agent Milo Web API & Telegram Server on port {port}...")
-        uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False, workers=1)
     else:
-        # Default for cloud deployment: run FastAPI web server & Telegram bot thread
-        print(f"Starting Agent Milo 24/7 Cloud Server on port {port}...")
+        print(f"Starting Agent Milo 24/7 API Engine on port {port}...")
         uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False, workers=1)
 
 if __name__ == "__main__":

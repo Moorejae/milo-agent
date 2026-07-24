@@ -56,20 +56,16 @@ FULL_MODEL_WATERFALL = [
     "gemini-2.5-pro",
     "gemini-2.5-flash",
     "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
-    "gemini-1.5-pro",
-    "gemini-1.5-flash"
+    "gemini-2.0-flash-lite"
 ]
 
-# Routine waterfall prioritizing 3.5/3.6 Flash and 14k RPD Gemma before 2.x fallbacks
+# Routine waterfall prioritizing gemini-3.6-flash first for <4s responses
 ROUTINE_MODEL_WATERFALL = [
-    "gemini-3.5-flash",
     "gemini-3.6-flash",
+    "gemini-3.5-flash",
     "gemma-4-31b-it",
     "gemma-4-26b-a4b-it",
-    "gemini-3.5-flash-lite",
-    "gemini-2.5-flash",
-    "gemini-2.0-flash"
+    "gemini-3.5-flash-lite"
 ]
 
 class LLMManager:

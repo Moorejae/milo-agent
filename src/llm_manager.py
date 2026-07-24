@@ -35,37 +35,25 @@ def load_api_keys():
                 
     return keys
 
-# Corrected Waterfall Priority:
-# Tier 1: Highest Intelligence 3.x Flagships (3.6-flash, 3.5-flash, 3.1-pro, pro-latest)
-# Tier 2: High-Quota Gemma Models (gemma-4-31b-it, gemma-4-26b-a4b-it -> 14,000 Requests/Day!)
-# Tier 3: High-Speed 2.5/2.0 Flash & Lite Fallbacks
-FULL_MODEL_WATERFALL = [
-    # --- TIER 1: FLAGSHIP 3.X SMARTEST MODELS FIRST ---
-    "gemini-3.6-flash",
-    "gemini-3.5-flash",
-    "gemini-3.1-pro-preview",
-    "gemini-pro-latest",
-    "gemini-flash-latest",
-    
-    # --- TIER 2: 14,000 RPD MASSIVE QUOTA GEMMA MODELS ---
-    "gemma-4-31b-it",
+# TIER 1: HIGH QUOTA / ULTRA-FAST CHAT WATERFALL (For casual conversation & status)
+CHAT_MODEL_WATERFALL = [
     "gemma-4-26b-a4b-it",
-    
-    # --- TIER 3: HIGH-SPEED FLASH & 2.X FALLBACKS ---
+    "gemma-4-31b-it",
     "gemini-3.5-flash-lite",
-    "gemini-2.5-pro",
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite"
+    "gemini-3.6-flash"
 ]
 
-# Routine waterfall prioritizing gemini-3.6-flash first for <4s responses
-ROUTINE_MODEL_WATERFALL = [
+# TIER 2: REASONING & SYNTHESIS WATERFALL (For tool execution & memory synthesis)
+REASONING_MODEL_WATERFALL = [
     "gemini-3.6-flash",
-    "gemini-3.5-flash",
-    "gemma-4-31b-it",
-    "gemma-4-26b-a4b-it",
-    "gemini-3.5-flash-lite"
+    "gemini-3.5-flash"
+]
+
+# TIER 3: DEEP ARCHITECT WATERFALL (For code generation & complex problem solving)
+ARCHITECT_MODEL_WATERFALL = [
+    "gemini-3.1-pro-preview",
+    "gemini-pro-latest",
+    "gemini-3.6-flash"
 ]
 
 class LLMManager:
@@ -74,12 +62,12 @@ class LLMManager:
         self.current_key_idx = 0
 
     def get_waterfall_for_intensity(self, intensity: str):
-        if intensity in ["heavy", "complex", "antigravity", "architect"]:
-            return FULL_MODEL_WATERFALL
-        elif intensity in ["light", "routine", "minimal", "low"]:
-            return ROUTINE_MODEL_WATERFALL
+        if intensity in ["chat", "casual", "light", "minimal", "low"]:
+            return CHAT_MODEL_WATERFALL
+        elif intensity in ["architect", "heavy", "complex", "code"]:
+            return ARCHITECT_MODEL_WATERFALL
         else:
-            return FULL_MODEL_WATERFALL
+            return REASONING_MODEL_WATERFALL
 
     def _sanitize_messages(self, prompt_or_messages):
         """Sanitizes messages to guarantee no empty content reaches the Gemini API."""
@@ -132,6 +120,7 @@ class LLMManager:
                         llm = llm.bind_tools(tools)
                         
                     response = llm.invoke(sanitized_input)
+                    setattr(response, "_used_model", model_name)
                     print(f" SUCCESS with key #{self.current_key_idx + 1} and model '{model_name}'!")
                     return response
                     

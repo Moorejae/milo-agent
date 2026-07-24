@@ -113,14 +113,28 @@ class HiveQueenEngine:
         print(f"[Hive-Queen Milo] Received Objective {objective_id}: '{raw_user_ask}'")
         print(f"==================================================")
 
-        # Fast path for simple greetings or short conversational messages
+        # Smart Direct Intent Routing for Conversational & Informational Queries
         import re
         clean_words = re.sub(r'[^\w\s]', '', raw_user_ask.lower()).split()
-        fast_path_triggers = {"hi", "hello", "hey", "test", "ready", "status", "who", "help", "there", "ping"}
-        if len(clean_words) <= 10 and any(w in fast_path_triggers for w in clean_words):
+        dag_action_keywords = ["write code", "create file", "build app", "manufacture", "deploy", "post to", "send email", "scrape", "execute script"]
+        is_complex_dag = any(kw in raw_user_ask.lower() for kw in dag_action_keywords) or len(clean_words) > 30
+
+        if not is_complex_dag:
+            current_date_str = time.strftime("%A, %B %d, %Y")
+            system_context = (
+                f"You are Agent Milo — an autonomous digital Personal Assistant created for your user, Moore (Victor).\n"
+                f"System Environment:\n"
+                f"- Current Date: {current_date_str}\n"
+                f"- Architecture: Fast-Path Neural Core powered by Google Gemini 3.6 Flash\n"
+                f"- Storage / Memory: Obsidian Second Brain Vault\n\n"
+                f"Directives:\n"
+                f"- Respond directly, politely, and eloquently in 1-3 natural sentences.\n"
+                f"- When asked about your model, state that you are powered by Google Gemini 3.6 Flash.\n"
+                f"- Never use robotic fluff, asterisks, or bullet points."
+            )
             resp = llm_manager.invoke_with_waterfall(
                 prompt_or_messages=[
-                    {"role": "system", "content": "You are Agent Milo — an autonomous digital Personal Assistant. Respond directly, politely, and eloquently in 1-2 natural sentences without robotic fluff or bullet points."},
+                    {"role": "system", "content": system_context},
                     {"role": "user", "content": raw_user_ask}
                 ],
                 intensity="routine"

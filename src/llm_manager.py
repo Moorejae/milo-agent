@@ -125,7 +125,8 @@ class LLMManager:
                     kwargs = {
                         "model": model_name,
                         "google_api_key": current_key,
-                        "max_retries": 0
+                        "max_retries": 0,
+                        "timeout": 45.0
                     }
                     if not ("3.6" in model_name or "3.5" in model_name or "lite" in model_name):
                         kwargs["temperature"] = 0.2

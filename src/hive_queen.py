@@ -114,8 +114,10 @@ class HiveQueenEngine:
         print(f"==================================================")
 
         # Fast path for simple greetings or short conversational messages
-        words = raw_user_ask.strip().split()
-        if len(words) <= 5 and any(w.lower() in ["hi", "hello", "hey", "test", "ready", "status", "who are you", "help"] for w in words):
+        import re
+        clean_words = re.sub(r'[^\w\s]', '', raw_user_ask.lower()).split()
+        fast_path_triggers = {"hi", "hello", "hey", "test", "ready", "status", "who", "help", "there", "ping"}
+        if len(clean_words) <= 10 and any(w in fast_path_triggers for w in clean_words):
             resp = llm_manager.invoke_with_waterfall(
                 prompt_or_messages=[
                     {"role": "system", "content": "You are Agent Milo — an autonomous digital Personal Assistant. Respond directly, politely, and eloquently in 1-2 natural sentences without robotic fluff or bullet points."},

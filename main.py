@@ -68,12 +68,16 @@ async def chat_endpoint(request: Request):
         return {"error": "Message parameter is required"}
         
     initial_state = {"messages": [{"role": "user", "content": user_message}], "sub_tasks": [], "current_result": "", "final_output": ""}
-    loop = asyncio.get_running_loop()
-    output_state = await loop.run_in_executor(None, milo_app.invoke, initial_state)
-    
-    messages = output_state.get("messages", [])
-    response_text = get_clean_content_str(messages[-1].get("content", "")) if messages else output_state.get("current_result", "Done")
-    return {"reply": response_text}
+    try:
+        loop = asyncio.get_running_loop()
+        output_state = await loop.run_in_executor(None, milo_app.invoke, initial_state)
+        
+        messages = output_state.get("messages", [])
+        response_text = get_clean_content_str(messages[-1].get("content", "")) if messages else output_state.get("current_result", "Done")
+        return {"reply": response_text}
+    except Exception as e:
+        print(f"[Error in chat_endpoint]: {e}")
+        return {"reply": f"Sorry, I encountered an internal error: {e}"}
 
 def run_cli():
     print("==================================================")
